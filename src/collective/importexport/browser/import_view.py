@@ -249,8 +249,10 @@ def export_file(result, header_mapping, request=None):
                         encoding='utf-8')
     columns = [d['header'] for d in header_mapping]
     writer.writerow(columns)
+    xdata = []
     for row in result:
         items = []
+        items_dict = dict()
         if getattr(row, 'getObject', None):
             obj = row.getObject()
         else:
@@ -263,10 +265,12 @@ def export_file(result, header_mapping, request=None):
             if fieldid == '_path':
                 path = obj.getPhysicalPath()
                 virtual_path = request.physicalPathToVirtualPath(path)
-                items.append('/'.join(virtual_path))
+                items.append('/'.join(virtual_path)) #csv
+                items_dict[d['field']] = ('/'.join(virtual_path)).decode('utf-8') #xlsx
                 continue
             elif fieldid == '_url':
-                items.append(obj.absolute_url())
+                items.append(obj.absolute_url()) #csv
+                items_dict[d['field']] = (obj.absolute_url()).decode('utf-8') #xlsx
                 continue
 
             value = ""
@@ -313,9 +317,11 @@ def export_file(result, header_mapping, request=None):
                     value = u'{0}/@@download/{1}'.format(row.getURL(),
                         fieldid)
                     break
+
                 serializer = ISerializer(field)
                 value = serializer(value, {})
                 break
+
             # Added due to an ascii error https://github.com/collective/collective.importexport/issues/1
             if isinstance(value,basestring):
                 try:
@@ -325,13 +331,27 @@ def export_file(result, header_mapping, request=None):
                     value = value.decode('utf-8').encode('utf8')
             else:
                 value = unicode(value).encode('utf8')
+            # Append value to items list for csv
             items.append(value)
+            # Set value to dict for xlsx
+            items_dict[d['header']] = value.decode('utf-8')
 
 #        log.debug(items)
+        # Csv
         writer.writerow(items)
+        # Xlsx
+        xdata.append(items_dict)
+
+    # Xlsx
+    dataset = tablib.Dataset()
+    dataset.dict = xdata
+    xlsx_file.write(dataset.xlsx)
+    xlsx_attachment = xlsx_file.getvalue()
+    xlsx_file.seek(0)
+    # Csv
     csv_attachment = csv_file.getvalue()
     csv_file.close()
-    return csv_attachment
+    return csv_attachment, xlsx_attachment
 
 def getContext(context=None):
     if context is NO_VALUE or context is None or not IFolderish.providedBy(context):
@@ -556,6 +576,27 @@ class ImportForm(form.SchemaForm):
         self.fields['header_mapping'].field.bind(self.context)
         super(ImportForm, self).updateWidgets()
 
+    def getObjectsToExport(self):
+        # Extract form field values and errors from HTTP request
+        data, errors = self.extractData()
+        if errors:
+            return False
+        container = self.context
+        container_path = "/".join(container.getPhysicalPath())
+        #TODO: should we allow more criteria? or at least filter by type?
+        query = dict(path={"query": container_path, "depth": 1},
+#                    portal_type=object_type,
+                     )
+#        query[primary_key]=key_arg[primary_key]
+
+        # blank header or field means we don't want it
+        header_mapping = [d for d in data['header_mapping'] if d['field'] and d['header']]
+
+
+        catalog = api.portal.get_tool("portal_catalog")
+        results = catalog(**query)
+
+        return header_mapping, results
 
     @button.buttonAndHandler(_("import_button_save_import",  # nopep8
                                default=u"CSV Import"))
@@ -711,32 +752,15 @@ class ImportForm(form.SchemaForm):
 
         #self.request.response.redirect(self.context.absolute_url())
 
-    @button.buttonAndHandler(_("import___button_export",  # nopep8
+    @button.buttonAndHandler(_("import___button_export_csv",  # nopep8
                                default=u"CSV Export"))
-    def handleExport(self, action):
-        # Extract form field values and errors from HTTP request
-        data, errors = self.extractData()
-        if errors:
-            return False
-        container = self.context
-        container_path = "/".join(container.getPhysicalPath())
-        #TODO: should we allow more criteria? or at least filter by type?
-        query = dict(path={"query": container_path, "depth": 1},
-#                    portal_type=object_type,
-                     )
-#        query[primary_key]=key_arg[primary_key]
-
-        # blank header or field means we don't want it
-        header_mapping = [d for d in data['header_mapping'] if d['field'] and d['header']]
-
-
-        catalog = api.portal.get_tool("portal_catalog")
-        results = catalog(**query)
-
+    def handleExportCSV(self, action):
+        [header_mapping,results] = self.getObjectsToExport()
         normalizer = getUtility(IIDNormalizer)
         random_id = normalizer.normalize(time.time())
         filename = "export_{0}.{1}".format(random_id, 'csv')
-        attachment = export_file(results, header_mapping, self.request)
+        [attachment, attachmentx] = export_file(results, header_mapping,
+           self.request)
         #log.debug(filename)
         #log.debug(attachment)
         self.request.response.setHeader('content-type', 'text/csv')
@@ -746,6 +770,24 @@ class ImportForm(form.SchemaForm):
         self.request.response.setBody(attachment, lock=True)
         return True
 
+    @button.buttonAndHandler(_("import___button_export_xlsx",  # nopep8
+                               default=u"XLSX Export"))
+    def handleExportXLSX(self, action):
+        [header_mapping,results] = self.getObjectsToExport()
+        normalizer = getUtility(IIDNormalizer)
+        random_id = normalizer.normalize(time.time())
+        filenamex = "export_{0}.{1}".format(random_id, 'xlsx')
+        [attachment, attachmentx] = export_file(results, header_mapping,
+           self.request)
+        #log.debug(filename)
+        #log.debug(attachment)
+
+        self.request.response.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.request.response.setHeader(
+            'Content-Disposition',
+            'attachment; filename="%s"' % filenamex)
+        self.request.response.setBody(attachmentx, lock=True)
+        return True
 
     @button.buttonAndHandler(u"Cancel")
     def handleCancel(self, action):
