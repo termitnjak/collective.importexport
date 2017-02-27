@@ -45,10 +45,13 @@ from zope.lifecycleevent import ObjectModifiedEvent
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile as FiveViewPageTemplateFile
 from collective.z3cform.datagridfield import DataGridFieldFactory, DictRow
 
-import csv
+# import csv
 import logging
 import StringIO
 import time
+import unicodecsv as csv
+import tablib
+
 
 log = logging.getLogger(__name__)
 
@@ -239,7 +242,11 @@ def export_file(result, header_mapping, request=None):
         request = getRequest()
 
     csv_file = StringIO.StringIO()
-    writer = csv.writer(csv_file, delimiter=",", dialect="excel", quotechar='"')
+    writer = csv.writer(csv_file,
+                        delimiter=",",
+                        dialect="excel",
+                        quotechar='"',
+                        encoding='utf-8')
     columns = [d['header'] for d in header_mapping]
     writer.writerow(columns)
     for row in result:
