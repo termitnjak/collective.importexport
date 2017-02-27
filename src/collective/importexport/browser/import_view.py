@@ -241,17 +241,8 @@ def export_file(result, header_mapping, request=None):
     if request is None:
         request = getRequest()
 
-    csv_file = StringIO.StringIO()
-    writer = csv.writer(csv_file,
-                        delimiter=",",
-                        dialect="excel",
-                        quotechar='"',
-                        encoding='utf-8')
-    columns = [d['header'] for d in header_mapping]
-    writer.writerow(columns)
-    xdata = []
+    data = []
     for row in result:
-        items = []
         items_dict = dict()
         if getattr(row, 'getObject', None):
             obj = row.getObject()
@@ -260,17 +251,15 @@ def export_file(result, header_mapping, request=None):
         for d in header_mapping:
             fieldid = d['field']
             if obj is None:
-                items.append(row(fieldid))
+                items_dict[d['header']] = row(fieldid)
                 continue
             if fieldid == '_path':
                 path = obj.getPhysicalPath()
                 virtual_path = request.physicalPathToVirtualPath(path)
-                items.append('/'.join(virtual_path)) #csv
-                items_dict[d['field']] = ('/'.join(virtual_path)).decode('utf-8') #xlsx
+                items_dict[d['header']] = ('/'.join(virtual_path)).decode('utf-8') #xlsx
                 continue
             elif fieldid == '_url':
-                items.append(obj.absolute_url()) #csv
-                items_dict[d['field']] = (obj.absolute_url()).decode('utf-8') #xlsx
+                items_dict[d['header']] = (obj.absolute_url()).decode('utf-8') #xlsx
                 continue
 
             value = ""
@@ -331,27 +320,15 @@ def export_file(result, header_mapping, request=None):
                     value = value.decode('utf-8').encode('utf8')
             else:
                 value = unicode(value).encode('utf8')
-            # Append value to items list for csv
-            items.append(value)
-            # Set value to dict for xlsx
+
             items_dict[d['header']] = value.decode('utf-8')
 
-#        log.debug(items)
-        # Csv
-        writer.writerow(items)
-        # Xlsx
-        xdata.append(items_dict)
+        data.append(items_dict)
 
-    # Xlsx
     dataset = tablib.Dataset()
-    dataset.dict = xdata
-    xlsx_file.write(dataset.xlsx)
-    xlsx_attachment = xlsx_file.getvalue()
-    xlsx_file.seek(0)
-    # Csv
-    csv_attachment = csv_file.getvalue()
-    csv_file.close()
-    return csv_attachment, xlsx_attachment
+    dataset.dict = data
+
+    return dataset
 
 def getContext(context=None):
     if context is NO_VALUE or context is None or not IFolderish.providedBy(context):
@@ -741,14 +718,18 @@ class ImportForm(form.SchemaForm):
             normalizer = getUtility(IIDNormalizer)
             random_id = normalizer.normalize(time.time())
             filename = "export_{0}.{1}".format(random_id, 'csv')
-            attachment = export_file(self.import_metadata["report"],
+            dataset = export_file(self.import_metadata["report"],
                                                header_mapping,
                                                self.request)
+            file = StringIO.StringIO()
+            file.write(dataset.csv)
+            attachment = file.getvalue()
             self.request.response.setHeader('content-type', 'text/csv')
             self.request.response.setHeader(
                 'Content-Disposition',
                 'attachment; filename="%s"' % filename)
             self.request.response.setBody(attachment, lock=True)
+            file.close()
 
         #self.request.response.redirect(self.context.absolute_url())
 
@@ -759,15 +740,20 @@ class ImportForm(form.SchemaForm):
         normalizer = getUtility(IIDNormalizer)
         random_id = normalizer.normalize(time.time())
         filename = "export_{0}.{1}".format(random_id, 'csv')
-        [attachment, attachmentx] = export_file(results, header_mapping,
+        dataset = export_file(results, header_mapping,
            self.request)
         #log.debug(filename)
         #log.debug(attachment)
+        file = StringIO.StringIO()
+        file.write(dataset.csv)
+        attachment = file.getvalue()
+
         self.request.response.setHeader('content-type', 'text/csv')
         self.request.response.setHeader(
             'Content-Disposition',
             'attachment; filename="%s"' % filename)
         self.request.response.setBody(attachment, lock=True)
+        file.close()
         return True
 
     @button.buttonAndHandler(_("import___button_export_xlsx",  # nopep8
@@ -776,17 +762,21 @@ class ImportForm(form.SchemaForm):
         [header_mapping,results] = self.getObjectsToExport()
         normalizer = getUtility(IIDNormalizer)
         random_id = normalizer.normalize(time.time())
-        filenamex = "export_{0}.{1}".format(random_id, 'xlsx')
-        [attachment, attachmentx] = export_file(results, header_mapping,
-           self.request)
+        filename = "export_{0}.{1}".format(random_id, 'xlsx')
+        dataset = export_file(results, header_mapping, self.request)
         #log.debug(filename)
         #log.debug(attachment)
-
-        self.request.response.setHeader('content-type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        file = StringIO.StringIO()
+        file.write(dataset.xlsx)
+        attachment = file.getvalue()
+        self.request.response.setHeader(
+            'content-type',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         self.request.response.setHeader(
             'Content-Disposition',
-            'attachment; filename="%s"' % filenamex)
-        self.request.response.setBody(attachmentx, lock=True)
+            'attachment; filename="%s"' % filename)
+        self.request.response.setBody(attachment, lock=True)
+        file.close()
         return True
 
     @button.buttonAndHandler(u"Cancel")
