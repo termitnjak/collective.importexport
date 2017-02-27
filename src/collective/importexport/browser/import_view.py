@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from AccessControl.security import checkPermission
+from Products.CMFPlone.utils import safe_unicode
 from Products.CMFCore.interfaces import IFolderish
 from Products.CMFPlone.interfaces import ISelectableConstrainTypes, IConstrainTypes
 from plone.dexterity.utils import iterSchemataForType
@@ -9,7 +10,22 @@ from z3c.form.interfaces import NO_VALUE, WidgetActionExecutionError
 from zope.annotation import IAnnotations
 from zope.globalrequest import getRequest
 from zope.schema import getFieldsInOrder
-from zope.schema.interfaces import IContextSourceBinder, IBool, IText, IBytes, IInt, IFloat, IDecimal, IChoice, IDate, IDatetime, ITime
+from zope.schema.interfaces import (
+                                    IContextSourceBinder,
+                                    IBool,
+                                    IText,
+                                    IBytes,
+                                    IInt,
+                                    IFloat,
+                                    IDecimal,
+                                    IChoice,
+                                    IDate,
+                                    IDatetime,
+                                    ITime,
+                                    IList
+)
+from plone.app.textfield.interfaces import IRichText, IRichTextValue
+from plone.namedfile.interfaces import INamed, INamedImageField
 from zope.schema.vocabulary import SimpleVocabulary
 from collective.importexport import _
 from plone import api
@@ -258,9 +274,50 @@ def export_file(result, header_mapping, request=None):
                     continue
                 if value is field.missing_value:
                     continue
+                if IRichTextValue.providedBy(value):
+                    # Convert to plain text
+                    transforms = api.portal.get_tool('portal_transforms')
+                    value = transforms.convertTo(
+                                target_mimetype='text/plain',
+                                orig=value.raw_encoded,
+                                encoding=value.encoding,
+                                mimetype=value.mimeType)
+                    value = safe_unicode(value.getData())
+                    break
+
+                if IList.providedBy(field):
+                    # Check if items in list point to objects and use titles
+                    # instead
+                    names=[]
+                    for v in value:
+                        # Loop through choices
+                        query = dict(id=v)
+                        catalog = api.portal.get_tool("portal_catalog")
+                        results = catalog(**query)
+                        if results:
+                            names.append(results[0].Title)
+                    if names:
+                        value = names
+                    value = ', '.join(value)
+                    break
+
+                if INamed.providedBy(value):
+                    # Image, file field
+                    value = u'{0}/@@download/{1}'.format(row.getURL(),
+                        fieldid)
+                    break
                 serializer = ISerializer(field)
                 value = serializer(value, {})
                 break
+            # Added due to an ascii error https://github.com/collective/collective.importexport/issues/1
+            if isinstance(value,basestring):
+                try:
+                    value = value.encode('utf8')
+                except:
+                    # First decode to Unicode and encode back to utf-8
+                    value = value.decode('utf-8').encode('utf8')
+            else:
+                value = unicode(value).encode('utf8')
             items.append(value)
 
 #        log.debug(items)
@@ -312,7 +369,7 @@ def fields_list(context):
     # path is special and allows us to import to dirs and export resulting path
 
     allowed_types = [IText, IBytes, IInt, IFloat, IDecimal, IChoice, IDatetime,
-                     ITime, IDate]
+                     ITime, IDate, IList, IRichText, INamedImageField]
 
     for fti in get_allowed_types(context):
         portal_type = fti.getId()
