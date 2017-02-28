@@ -2,7 +2,8 @@
 from AccessControl.security import checkPermission
 from Products.CMFPlone.utils import safe_unicode
 from Products.CMFCore.interfaces import IFolderish
-from Products.CMFPlone.interfaces import ISelectableConstrainTypes, IConstrainTypes
+from Products.CMFPlone.interfaces import IConstrainTypes
+from Products.CMFPlone.interfaces import ISelectableConstrainTypes
 from plone.dexterity.utils import iterSchemataForType
 from transmogrify.dexterity.interfaces import ISerializer
 from transmogrify.dexterity.schemaupdater import DexterityUpdateSection
@@ -11,25 +12,18 @@ from zope.annotation import IAnnotations
 from zope.globalrequest import getRequest
 from zope.schema import getFieldsInOrder
 from zope.schema.interfaces import (
-                                    IContextSourceBinder,
-                                    IBool,
-                                    IText,
-                                    IBytes,
-                                    IInt,
-                                    IFloat,
-                                    IDecimal,
-                                    IChoice,
-                                    IDate,
-                                    IDatetime,
-                                    ITime,
-                                    IList
+    IContextSourceBinder, IBool, IText, IBytes, IInt, IFloat, IDecimal, IChoice,
+    IDate, IDatetime, ITime, IList
 )
-from plone.app.textfield.interfaces import IRichText, IRichTextValue
-from plone.namedfile.interfaces import INamed, INamedImageField
+from plone.app.textfield.interfaces import IRichText
+from plone.app.textfield.interfaces import IRichTextValue
+from plone.namedfile.interfaces import INamed
+from plone.namedfile.interfaces import INamedImageField
 from zope.schema.vocabulary import SimpleVocabulary
 from collective.importexport import _
 from plone import api
-from plone.dexterity.utils import iterSchemataForType, iterSchemata
+from plone.dexterity.utils import iterSchemata
+from plone.dexterity.utils import iterSchemataForType
 from plone.directives import form
 from plone.i18n.normalizer.interfaces import IIDNormalizer
 from plone.i18n.normalizer.interfaces import IURLNormalizer
@@ -37,15 +31,17 @@ from plone.namedfile.field import NamedFile
 from plone.z3cform.layout import wrap_form
 from Products.CMFPlone.utils import safe_unicode
 from z3c.form import button
-from zope.interface import Interface, directlyProvides, provider, Invalid, implements
+from zope.interface import (
+    Interface, directlyProvides, provider, Invalid, implements
+)
 from zope import schema
 from zope.component import getUtility
 from zope.event import notify
 from zope.lifecycleevent import ObjectModifiedEvent
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile as FiveViewPageTemplateFile
-from collective.z3cform.datagridfield import DataGridFieldFactory, DictRow
+from collective.z3cform.datagridfield import DataGridFieldFactory
+from collective.z3cform.datagridfield import DictRow
 
-# import csv
 import logging
 import StringIO
 import time
@@ -278,10 +274,10 @@ def export_file(result, header_mapping, request=None):
                     # Convert to plain text
                     transforms = api.portal.get_tool('portal_transforms')
                     value = transforms.convertTo(
-                                target_mimetype='text/plain',
-                                orig=value.raw_encoded,
-                                encoding=value.encoding,
-                                mimetype=value.mimeType)
+                        target_mimetype='text/plain',
+                        orig=value.raw_encoded,
+                        encoding=value.encoding,
+                        mimetype=value.mimeType)
                     value = safe_unicode(value.getData())
                     break
 
