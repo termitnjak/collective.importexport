@@ -308,16 +308,11 @@ def export_file(result, header_mapping, request=None):
                 value = serializer(value, {})
                 break
 
-            # Added due to an ascii error related to csv
-            if isinstance(value,basestring):
-                try:
-                    value = value.encode('utf8')
-                except:
-                    # First decode to Unicode and encode back to utf-8
-                    value = value.decode('utf-8').encode('utf8')
-            else:
-                value = unicode(value).encode('utf8')
-            items_dict[d['header']] = value.decode('utf-8')
+            # Added due to an ascii error related to csv export. We convert to
+            # unicode as unicodecsv requires unicode
+            value = safe_unicode(value)
+
+            items_dict[d['header']] = value
 
         data.append(items_dict)
 
