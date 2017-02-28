@@ -7,7 +7,8 @@ from Products.CMFPlone.interfaces import ISelectableConstrainTypes
 from plone.dexterity.utils import iterSchemataForType
 from transmogrify.dexterity.interfaces import ISerializer
 from transmogrify.dexterity.schemaupdater import DexterityUpdateSection
-from z3c.form.interfaces import NO_VALUE, WidgetActionExecutionError
+from z3c.form.interfaces import NO_VALUE
+from z3c.form.interfaces import WidgetActionExecutionError
 from zope.annotation import IAnnotations
 from zope.globalrequest import getRequest
 from zope.schema import getFieldsInOrder
@@ -29,7 +30,6 @@ from plone.i18n.normalizer.interfaces import IIDNormalizer
 from plone.i18n.normalizer.interfaces import IURLNormalizer
 from plone.namedfile.field import NamedFile
 from plone.z3cform.layout import wrap_form
-from Products.CMFPlone.utils import safe_unicode
 from z3c.form import button
 from zope.interface import (
     Interface, directlyProvides, provider, Invalid, implements
@@ -237,6 +237,9 @@ def export_file(result, header_mapping, request=None):
     if request is None:
         request = getRequest()
 
+    transforms = api.portal.get_tool('portal_transforms')
+    catalog = api.portal.get_tool("portal_catalog")
+
     data = []
     for row in result:
         items_dict = dict()
@@ -252,10 +255,10 @@ def export_file(result, header_mapping, request=None):
             if fieldid == '_path':
                 path = obj.getPhysicalPath()
                 virtual_path = request.physicalPathToVirtualPath(path)
-                items_dict[d['header']] = ('/'.join(virtual_path)).decode('utf-8') #xlsx
+                items_dict[d['header']] = ('/'.join(virtual_path)).decode('utf-8')
                 continue
             elif fieldid == '_url':
-                items_dict[d['header']] = (obj.absolute_url()).decode('utf-8') #xlsx
+                items_dict[d['header']] = (obj.absolute_url()).decode('utf-8')
                 continue
 
             value = ""
@@ -272,7 +275,6 @@ def export_file(result, header_mapping, request=None):
                     continue
                 if IRichTextValue.providedBy(value):
                     # Convert to plain text
-                    transforms = api.portal.get_tool('portal_transforms')
                     value = transforms.convertTo(
                         target_mimetype='text/plain',
                         orig=value.raw_encoded,
@@ -285,10 +287,9 @@ def export_file(result, header_mapping, request=None):
                     # Check if items in list point to objects and use titles
                     # instead
                     names=[]
-                    for v in value:
+                    for item_id in value:
                         # Loop through choices
-                        query = dict(id=v)
-                        catalog = api.portal.get_tool("portal_catalog")
+                        query = dict(id=item_id)
                         results = catalog(**query)
                         if results:
                             names.append(results[0].Title)
@@ -307,7 +308,7 @@ def export_file(result, header_mapping, request=None):
                 value = serializer(value, {})
                 break
 
-            # Added due to an ascii error https://github.com/collective/collective.importexport/issues/1
+            # Added due to an ascii error related to csv
             if isinstance(value,basestring):
                 try:
                     value = value.encode('utf8')
@@ -316,7 +317,6 @@ def export_file(result, header_mapping, request=None):
                     value = value.decode('utf-8').encode('utf8')
             else:
                 value = unicode(value).encode('utf8')
-
             items_dict[d['header']] = value.decode('utf-8')
 
         data.append(items_dict)
