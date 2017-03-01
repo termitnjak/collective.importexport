@@ -1,38 +1,52 @@
 # -*- coding: utf-8 -*-
 from AccessControl.security import checkPermission
+from Products.CMFPlone.utils import safe_unicode
 from Products.CMFCore.interfaces import IFolderish
-from Products.CMFPlone.interfaces import ISelectableConstrainTypes, IConstrainTypes
+from Products.CMFPlone.interfaces import IConstrainTypes
+from Products.CMFPlone.interfaces import ISelectableConstrainTypes
 from plone.dexterity.utils import iterSchemataForType
 from transmogrify.dexterity.interfaces import ISerializer
 from transmogrify.dexterity.schemaupdater import DexterityUpdateSection
-from z3c.form.interfaces import NO_VALUE, WidgetActionExecutionError
+from z3c.form.interfaces import NO_VALUE
+from z3c.form.interfaces import WidgetActionExecutionError
 from zope.annotation import IAnnotations
 from zope.globalrequest import getRequest
 from zope.schema import getFieldsInOrder
-from zope.schema.interfaces import IContextSourceBinder, IBool, IText, IBytes, IInt, IFloat, IDecimal, IChoice, IDate, IDatetime, ITime
+from zope.schema.interfaces import (
+    IContextSourceBinder, IBool, IText, IBytes, IInt, IFloat, IDecimal, IChoice,
+    IDate, IDatetime, ITime, IList
+)
+from plone.app.textfield.interfaces import IRichText
+from plone.app.textfield.interfaces import IRichTextValue
+from plone.namedfile.interfaces import INamed
+from plone.namedfile.interfaces import INamedImageField
 from zope.schema.vocabulary import SimpleVocabulary
 from collective.importexport import _
 from plone import api
-from plone.dexterity.utils import iterSchemataForType, iterSchemata
+from plone.dexterity.utils import iterSchemata
+from plone.dexterity.utils import iterSchemataForType
 from plone.directives import form
 from plone.i18n.normalizer.interfaces import IIDNormalizer
 from plone.i18n.normalizer.interfaces import IURLNormalizer
 from plone.namedfile.field import NamedFile
 from plone.z3cform.layout import wrap_form
-from Products.CMFPlone.utils import safe_unicode
 from z3c.form import button
-from zope.interface import Interface, directlyProvides, provider, Invalid, implements
+from zope.interface import (
+    Interface, directlyProvides, provider, Invalid, implements
+)
 from zope import schema
 from zope.component import getUtility
 from zope.event import notify
 from zope.lifecycleevent import ObjectModifiedEvent
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile as FiveViewPageTemplateFile
-from collective.z3cform.datagridfield import DataGridFieldFactory, DictRow
+from collective.z3cform.datagridfield import DataGridFieldFactory
+from collective.z3cform.datagridfield import DictRow
 
-import csv
 import logging
 import StringIO
 import time
+import tablib
+
 
 log = logging.getLogger(__name__)
 
@@ -222,12 +236,12 @@ def export_file(result, header_mapping, request=None):
     if request is None:
         request = getRequest()
 
-    csv_file = StringIO.StringIO()
-    writer = csv.writer(csv_file, delimiter=",", dialect="excel", quotechar='"')
-    columns = [d['header'] for d in header_mapping]
-    writer.writerow(columns)
+    transforms = api.portal.get_tool('portal_transforms')
+    catalog = api.portal.get_tool("portal_catalog")
+
+    data = []
     for row in result:
-        items = []
+        items_dict = dict()
         if getattr(row, 'getObject', None):
             obj = row.getObject()
         else:
@@ -235,15 +249,15 @@ def export_file(result, header_mapping, request=None):
         for d in header_mapping:
             fieldid = d['field']
             if obj is None:
-                items.append(row(fieldid))
+                items_dict[d['header']] = row(fieldid)
                 continue
             if fieldid == '_path':
                 path = obj.getPhysicalPath()
                 virtual_path = request.physicalPathToVirtualPath(path)
-                items.append('/'.join(virtual_path))
+                items_dict[d['header']] = ('/'.join(virtual_path)).decode('utf-8')
                 continue
             elif fieldid == '_url':
-                items.append(obj.absolute_url())
+                items_dict[d['header']] = (obj.absolute_url()).decode('utf-8')
                 continue
 
             value = ""
@@ -258,16 +272,53 @@ def export_file(result, header_mapping, request=None):
                     continue
                 if value is field.missing_value:
                     continue
+                if IRichTextValue.providedBy(value):
+                    # Convert to plain text
+                    value = transforms.convertTo(
+                        target_mimetype='text/plain',
+                        orig=value.raw_encoded,
+                        encoding=value.encoding,
+                        mimetype=value.mimeType)
+                    value = safe_unicode(value.getData())
+                    break
+
+                if IList.providedBy(field):
+                    # Check if items in list point to objects and use titles
+                    # instead
+                    names=[]
+                    for item_id in value:
+                        # Loop through choices
+                        query = dict(id=item_id)
+                        results = catalog(**query)
+                        if results:
+                            names.append(results[0].Title)
+                    if names:
+                        value = names
+                    value = ', '.join(value)
+                    break
+
+                if INamed.providedBy(value):
+                    # Image, file field
+                    value = u'{0}/@@download/{1}'.format(row.getURL(),
+                        fieldid)
+                    break
+
                 serializer = ISerializer(field)
                 value = serializer(value, {})
                 break
-            items.append(value)
 
-#        log.debug(items)
-        writer.writerow(items)
-    csv_attachment = csv_file.getvalue()
-    csv_file.close()
-    return csv_attachment
+            # Added due to an ascii error related to csv export. We convert to
+            # unicode as unicodecsv requires unicode
+            value = safe_unicode(value)
+
+            items_dict[d['header']] = value
+
+        data.append(items_dict)
+
+    dataset = tablib.Dataset()
+    dataset.dict = data
+
+    return dataset
 
 def getContext(context=None):
     if context is NO_VALUE or context is None or not IFolderish.providedBy(context):
@@ -312,7 +363,7 @@ def fields_list(context):
     # path is special and allows us to import to dirs and export resulting path
 
     allowed_types = [IText, IBytes, IInt, IFloat, IDecimal, IChoice, IDatetime,
-                     ITime, IDate]
+                     ITime, IDate, IList, IRichText, INamedImageField]
 
     for fti in get_allowed_types(context):
         portal_type = fti.getId()
@@ -492,6 +543,26 @@ class ImportForm(form.SchemaForm):
         self.fields['header_mapping'].field.bind(self.context)
         super(ImportForm, self).updateWidgets()
 
+    def getObjectsToExport(self):
+        # Extract form field values and errors from HTTP request
+        data, errors = self.extractData()
+        if errors:
+            return False
+        container = self.context
+        container_path = "/".join(container.getPhysicalPath())
+        #TODO: should we allow more criteria? or at least filter by type?
+        query = dict(path={"query": container_path, "depth": 1},
+#                    portal_type=object_type,
+                     )
+#        query[primary_key]=key_arg[primary_key]
+
+        # blank header or field means we don't want it
+        header_mapping = [d for d in data['header_mapping'] if d['field'] and d['header']]
+
+        catalog = api.portal.get_tool("portal_catalog")
+        results = catalog(**query)
+
+        return header_mapping, results
 
     @button.buttonAndHandler(_("import_button_save_import",  # nopep8
                                default=u"CSV Import"))
@@ -636,52 +707,57 @@ class ImportForm(form.SchemaForm):
             normalizer = getUtility(IIDNormalizer)
             random_id = normalizer.normalize(time.time())
             filename = "export_{0}.{1}".format(random_id, 'csv')
-            attachment = export_file(self.import_metadata["report"],
+            dataset = export_file(self.import_metadata["report"],
                                                header_mapping,
                                                self.request)
+            file = StringIO.StringIO()
+            file.write(dataset.csv)
+            attachment = file.getvalue()
             self.request.response.setHeader('content-type', 'text/csv')
             self.request.response.setHeader(
                 'Content-Disposition',
                 'attachment; filename="%s"' % filename)
             self.request.response.setBody(attachment, lock=True)
+            file.close()
 
         #self.request.response.redirect(self.context.absolute_url())
 
-    @button.buttonAndHandler(_("import___button_export",  # nopep8
+    @button.buttonAndHandler(_("import___button_export_csv",  # nopep8
                                default=u"CSV Export"))
-    def handleExport(self, action):
-        # Extract form field values and errors from HTTP request
-        data, errors = self.extractData()
-        if errors:
-            return False
-        container = self.context
-        container_path = "/".join(container.getPhysicalPath())
-        #TODO: should we allow more criteria? or at least filter by type?
-        query = dict(path={"query": container_path, "depth": 1},
-#                    portal_type=object_type,
-                     )
-#        query[primary_key]=key_arg[primary_key]
-
-        # blank header or field means we don't want it
-        header_mapping = [d for d in data['header_mapping'] if d['field'] and d['header']]
-
-
-        catalog = api.portal.get_tool("portal_catalog")
-        results = catalog(**query)
-
+    def handleExportCSV(self, action):
+        [header_mapping,results] = self.getObjectsToExport()
         normalizer = getUtility(IIDNormalizer)
         random_id = normalizer.normalize(time.time())
         filename = "export_{0}.{1}".format(random_id, 'csv')
-        attachment = export_file(results, header_mapping, self.request)
+        dataset = export_file(results, header_mapping,
+            self.request)
         #log.debug(filename)
         #log.debug(attachment)
         self.request.response.setHeader('content-type', 'text/csv')
         self.request.response.setHeader(
             'Content-Disposition',
             'attachment; filename="%s"' % filename)
-        self.request.response.setBody(attachment, lock=True)
+        self.request.response.setBody(dataset.csv, lock=True)
         return True
 
+    @button.buttonAndHandler(_("import___button_export_xlsx",  # nopep8
+                               default=u"XLSX Export"))
+    def handleExportXLSX(self, action):
+        [header_mapping,results] = self.getObjectsToExport()
+        normalizer = getUtility(IIDNormalizer)
+        random_id = normalizer.normalize(time.time())
+        filename = "export_{0}.{1}".format(random_id, 'xlsx')
+        dataset = export_file(results, header_mapping, self.request)
+        #log.debug(filename)
+        #log.debug(attachment)
+        self.request.response.setHeader(
+            'content-type',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.request.response.setHeader(
+            'Content-Disposition',
+            'attachment; filename="%s"' % filename)
+        self.request.response.setBody(dataset.xlsx, lock=True)
+        return True
 
     @button.buttonAndHandler(u"Cancel")
     def handleCancel(self, action):

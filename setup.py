@@ -47,8 +47,9 @@ setup(
         'setuptools',
         'z3c.jbot',
         'plone.directives.form',
-        'collective.z3cform.datagridfield > 1.1',
-        'transmogrify.dexterity >= 1.6.1'
+        'collective.z3cform.datagridfield >= 1.1',
+        'transmogrify.dexterity >= 1.6.1',
+        'tablib'
     ],
     extras_require={
         'test': [
