@@ -560,7 +560,6 @@ class ImportForm(form.SchemaForm):
         # blank header or field means we don't want it
         header_mapping = [d for d in data['header_mapping'] if d['field'] and d['header']]
 
-
         catalog = api.portal.get_tool("portal_catalog")
         results = catalog(**query)
 
@@ -732,19 +731,14 @@ class ImportForm(form.SchemaForm):
         random_id = normalizer.normalize(time.time())
         filename = "export_{0}.{1}".format(random_id, 'csv')
         dataset = export_file(results, header_mapping,
-           self.request)
+            self.request)
         #log.debug(filename)
         #log.debug(attachment)
-        file = StringIO.StringIO()
-        file.write(dataset.csv)
-        attachment = file.getvalue()
-
         self.request.response.setHeader('content-type', 'text/csv')
         self.request.response.setHeader(
             'Content-Disposition',
             'attachment; filename="%s"' % filename)
-        self.request.response.setBody(attachment, lock=True)
-        file.close()
+        self.request.response.setBody(dataset.csv, lock=True)
         return True
 
     @button.buttonAndHandler(_("import___button_export_xlsx",  # nopep8
@@ -757,17 +751,13 @@ class ImportForm(form.SchemaForm):
         dataset = export_file(results, header_mapping, self.request)
         #log.debug(filename)
         #log.debug(attachment)
-        file = StringIO.StringIO()
-        file.write(dataset.xlsx)
-        attachment = file.getvalue()
         self.request.response.setHeader(
             'content-type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         self.request.response.setHeader(
             'Content-Disposition',
             'attachment; filename="%s"' % filename)
-        self.request.response.setBody(attachment, lock=True)
-        file.close()
+        self.request.response.setBody(dataset.xlsx, lock=True)
         return True
 
     @button.buttonAndHandler(u"Cancel")
