@@ -45,7 +45,6 @@ from collective.z3cform.datagridfield import DictRow
 import logging
 import StringIO
 import time
-import unicodecsv as csv
 import tablib
 
 
