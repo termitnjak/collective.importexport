@@ -42,6 +42,7 @@ from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile as FiveV
 from collective.z3cform.datagridfield import DataGridFieldFactory
 from collective.z3cform.datagridfield import DictRow
 
+import csv
 import logging
 import StringIO
 import time
@@ -167,6 +168,11 @@ def read_and_create(container, data, mappings, object_type, create_new=False,
             query = dict(path={"query": container_path, "depth": 1},
     #                    portal_type=object_type,
                          )
+             # QT: Added because there is no other way to set Title as search parameter
+            if primary_key in ['title', 'description']:
+                query[primary_key.capitalize()]=key_arg[primary_key]
+            else:
+                query[primary_key]=key_arg[primary_key]
             query[primary_key]=key_arg[primary_key]
             results = catalog(**query)
             if len(results) > 1:
